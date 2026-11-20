@@ -1,0 +1,103 @@
+name: makefun-build
+# Build + submit make.fun news-image-20261120 entries on GitHub-hosted runners.
+# Manual dispatch only. One matrix job per account, max 20 in parallel
+# (GitHub Free plan concurrency cap). Secrets needed: XINGCHI_API_KEY only
+# (same value decrypts the bundles and feeds Codex).
+on:
+  workflow_dispatch:
+    inputs:
+      accounts:
+        description: "Comma-separated account numbers, or 'all' for every account in accounts.json"
+        required: true
+        default: "all"
+      max_parallel:
+        description: "Max parallel build jobs (1-20)"
+        required: false
+        default: "10"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        env:
+          WANT: ${{ inputs.accounts }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          accts = json.load(open("accounts.json"))
+          want = os.environ["WANT"].strip()
+          if want != "all":
+              keep = {int(x) for x in want.split(",") if x.strip()}
+              accts = [a for a in accts if a["n"] in keep]
+          # GitHub matrix hard cap is 256 jobs per run; chunk if needed by
+          # dispatching again with an explicit account list.
+          accts = accts[:256]
+          print(f"selected {len(accts)} accounts")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({"include": accts}) + "\n")
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      XINGCHI_API_KEY: ${{ secrets.XINGCHI_API_KEY }}
+      GH_WORK_DIR: ${{ github.workspace }}/work
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Cache npm + Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-codex-playwright-v1
+
+      - name: Install Codex + Playwright Chromium
+        run: |
+          npm install -g @openai/codex@0.170.0
+          mkdir -p work/shared
+          npm init -y --prefix work/shared >/dev/null
+          npm install --prefix work/shared playwright-core@1.65.1
+          npx --prefix work/shared playwright-core install --with-deps chromium || \
+            npx playwright@1.65.1 install --with-deps chromium
+
+      - name: Decrypt bundles
+        run: |
+          mkdir -p work/.makefun
+          openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in bundles/shared.enc -out /tmp/shared.tar -pass env:XINGCHI_API_KEY
+          tar xf /tmp/shared.tar -C work
+          openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in bundles/acct-${{ matrix.n }}.enc -out /tmp/acct.tar -pass env:XINGCHI_API_KEY
+          tar xf /tmp/acct.tar -C work
+          chmod 600 work/.makefun/credentials-${{ matrix.n }} work/makefun-keypair-${{ matrix.n }}.json
+          rm -f /tmp/shared.tar /tmp/acct.tar
+          cp work/shared/shoot-news105.mjs work/shared/shoot-news105.mjs.bak 2>/dev/null || true
+
+      - name: Build + submit account ${{ matrix.n }}
+        run: |
+          python3 gh-build-one.py ${{ matrix.n }} "${{ matrix.handle }}" "${{ matrix.wallet }}" || true
+          test -f result-${{ matrix.n }}.json || echo '{"n": ${{ matrix.n }}, "ok": false, "error": "driver produced no result file"}' > result-${{ matrix.n }}.json
+          cat result-${{ matrix.n }}.json
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.n }}
+          path: result-${{ matrix.n }}.json
+          retention-days: 14
