@@ -78,6 +78,7 @@ jobs:
 
       - name: Decrypt bundles
         run: |
+          export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
           mkdir -p work/.makefun
           openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
             -in bundles/shared.enc -out /tmp/shared.tar -pass env:XINGCHI_API_KEY
@@ -91,6 +92,7 @@ jobs:
 
       - name: Build + submit account ${{ matrix.n }}
         run: |
+          export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
           python3 gh-build-one.py ${{ matrix.n }} "${{ matrix.handle }}" "${{ matrix.wallet }}" || true
           test -f result-${{ matrix.n }}.json || echo '{"n": ${{ matrix.n }}, "ok": false, "error": "driver produced no result file"}' > result-${{ matrix.n }}.json
           cat result-${{ matrix.n }}.json
