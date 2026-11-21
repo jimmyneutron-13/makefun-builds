@@ -51,6 +51,15 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       XINGCHI_API_KEY: ${{ secrets.XINGCHI_API_KEY }}
+      XINGCHI_API_KEY_2: ${{ secrets.XINGCHI_API_KEY_2 }}
+      XINGCHI_API_KEY_3: ${{ secrets.XINGCHI_API_KEY_3 }}
+      XINGCHI_API_KEY_4: ${{ secrets.XINGCHI_API_KEY_4 }}
+      XINGCHI_API_KEY_5: ${{ secrets.XINGCHI_API_KEY_5 }}
+      XINGCHI_API_KEY_6: ${{ secrets.XINGCHI_API_KEY_6 }}
+      XINGCHI_API_KEY_7: ${{ secrets.XINGCHI_API_KEY_7 }}
+      XINGCHI_API_KEY_8: ${{ secrets.XINGCHI_API_KEY_8 }}
+      XINGCHI_API_KEY_9: ${{ secrets.XINGCHI_API_KEY_9 }}
+      XINGCHI_API_KEY_10: ${{ secrets.XINGCHI_API_KEY_10 }}
       BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
       GH_WORK_DIR: ${{ github.workspace }}/work
     steps:

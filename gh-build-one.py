@@ -80,6 +80,20 @@ def run(cmd, cwd=None, env_extra=None, timeout=1800, stdin_file=None):
 
 result = {"n": N, "handle": HANDLE, "ok": False, "machine": "github-actions"}
 
+# Xingchi key pool: pick one key per account (deterministic by account
+# number) so parallel jobs spread across keys instead of hammering one.
+# Slot 1 = XINGCHI_API_KEY, slots 2-10 = XINGCHI_API_KEY_2.._10.
+# Only the slot number is logged, never the value.
+_pool = []
+for _slot in range(1, 11):
+    _name = "XINGCHI_API_KEY" if _slot == 1 else f"XINGCHI_API_KEY_{_slot}"
+    _val = "".join((os.environ.get(_name) or "").split())
+    if _val: _pool.append((_slot, _val))
+if _pool:
+    _slot, _val = _pool[N % len(_pool)]
+    os.environ["XINGCHI_API_KEY"] = _val
+    log(f"using Xingchi key slot {_slot}/{len(_pool)}")
+
 if not os.environ.get("XINGCHI_API_KEY"):
     result["error"] = "XINGCHI_API_KEY env missing (set the GitHub secret)"
     finish(result)
