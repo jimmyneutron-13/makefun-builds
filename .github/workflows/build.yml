@@ -12,9 +12,9 @@ on:
         required: true
         default: "all"
       max_parallel:
-        description: "Max parallel build jobs (1-20)"
+        description: "Max parallel build jobs"
         required: false
-        default: "20"
+        default: "60"
 
 jobs:
   prepare:
