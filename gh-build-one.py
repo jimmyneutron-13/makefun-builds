@@ -17,7 +17,7 @@ XINGCHI_API_KEY must be in env (GitHub secret). Node + codex from PATH.
 Writes result-<N>.json in cwd and prints the same JSON as the last line.
 Never prints secret values.
 """
-import json, os, pathlib, re, subprocess, sys, time
+import json, os, pathlib, re, signal, subprocess, sys, time
 
 T0 = time.time()
 PHASES = {}
@@ -61,9 +61,22 @@ def finish(result):
 def run(cmd, cwd=None, env_extra=None, timeout=1800, stdin_file=None):
     env = dict(os.environ)
     if env_extra: env.update(env_extra)
-    kw = dict(cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
-    if stdin_file: kw["stdin"] = open(stdin_file)
-    return subprocess.run(cmd, **kw)
+    stdin = open(stdin_file) if stdin_file else None
+    p = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=stdin,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Kill the whole process group: grandchildren holding the pipes
+        # would otherwise keep communicate() blocked past the timeout.
+        try: os.killpg(p.pid, signal.SIGKILL)
+        except Exception: pass
+        try: out, err = p.communicate(timeout=10)
+        except Exception: out, err = "", ""
+        err = (err or "") + f"\n[TIMEOUT after {timeout}s, process group killed]"
+        return subprocess.CompletedProcess(cmd, -9, out, err)
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 result = {"n": N, "handle": HANDLE, "ok": False, "machine": "github-actions"}
 

@@ -99,8 +99,13 @@ jobs:
           cat result-${{ matrix.n }}.json
 
       - name: Upload result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: result-${{ matrix.n }}
-          path: result-${{ matrix.n }}.json
+          path: |
+            result-${{ matrix.n }}.json
+            work/codex-news${{ matrix.n }}.log
+            work/codex-news${{ matrix.n }}-resume.log
+            work/init-news-image-20261120-acct${{ matrix.n }}.log
           retention-days: 14
