@@ -60,6 +60,8 @@ jobs:
       XINGCHI_API_KEY_8: ${{ secrets.XINGCHI_API_KEY_8 }}
       XINGCHI_API_KEY_9: ${{ secrets.XINGCHI_API_KEY_9 }}
       XINGCHI_API_KEY_10: ${{ secrets.XINGCHI_API_KEY_10 }}
+      XINGCHI_API_KEY_11: ${{ secrets.XINGCHI_API_KEY_11 }}
+      XINGCHI_API_KEY_12: ${{ secrets.XINGCHI_API_KEY_12 }}
       BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
       GH_WORK_DIR: ${{ github.workspace }}/work
     steps:
