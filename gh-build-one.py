@@ -28,7 +28,9 @@ N = int(sys.argv[1]); HANDLE = sys.argv[2]; WALLET = sys.argv[3]
 BASE = pathlib.Path(os.environ.get("GH_WORK_DIR", "work")).resolve()
 SHARED = BASE / "shared"
 SLUG = "news-image-20261120"
-REPO = BASE / f"{SLUG}-bot-acct{N}"
+# Bot repo must live OUTSIDE the checked-out repository: `makefun init`
+# refuses to run in a subdirectory of an existing git repo (run #4, acct 880).
+REPO = pathlib.Path(os.environ.get("RUNNER_TEMP", "/tmp")) / f"gh-{SLUG}-bot-acct{N}"
 KITDIR = BASE / f"{SLUG}-kit-{N}"
 KIT = KITDIR / f"{SLUG}-kit"
 INIT_LOG = BASE / f"init-{SLUG}-acct{N}.log"
