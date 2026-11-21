@@ -1,8 +1,9 @@
 name: makefun-build
 # Build + submit make.fun news-image-20261120 entries on GitHub-hosted runners.
 # Manual dispatch only. One matrix job per account, max 20 in parallel
-# (GitHub Free plan concurrency cap). Secrets needed: XINGCHI_API_KEY only
-# (same value decrypts the bundles and feeds Codex).
+# (GitHub Free plan concurrency cap). Secrets needed: BUNDLE_PASSPHRASE
+# (decrypts bundles) + XINGCHI_API_KEY pool _1.._12 (feeds Codex, one key
+# per account by account number).
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +14,7 @@ on:
       max_parallel:
         description: "Max parallel build jobs (1-20)"
         required: false
-        default: "10"
+        default: "20"
 
 jobs:
   prepare:
