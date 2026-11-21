@@ -27,6 +27,9 @@ PARENT_SESSION = HOME / "agents" / "agent-3ec4af1d-5ebf-4d29-a262-b348c9e24464" 
 USAGE_SRC = HOME / ".makefun" / "muse-usage-news-image-20261120.jsonl"
 
 def passphrase():
+    pf = HOME / ".gh-bundle-pass"
+    if pf.exists():
+        return pf.read_text().strip()
     d = json.load(open(HOME / "workspace" / "xingchiapi" / "credentials.json"))
     return d["api_key"]
 
@@ -40,7 +43,7 @@ def encrypt(tar_path, enc_path, pw):
 
 def lane_accounts():
     out = []
-    for fname in ("accounts-friend20261121.jsonl", "accounts-chain1000.jsonl"):
+    for fname in ("accounts-friend20261121.jsonl", "accounts-chain1000.jsonl", "accounts-user16.jsonl"):
         rows = [json.loads(l) for l in open(MAKEFUN / fname) if l.strip()]
         ok = {r["n"]: r for r in rows if r.get("status") == "ok"}
         live = {r["n"] for r in rows if r.get("status") == "live"}

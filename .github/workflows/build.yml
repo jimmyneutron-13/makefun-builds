@@ -51,6 +51,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       XINGCHI_API_KEY: ${{ secrets.XINGCHI_API_KEY }}
+      BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
       GH_WORK_DIR: ${{ github.workspace }}/work
     steps:
       - uses: actions/checkout@v4
@@ -78,13 +79,13 @@ jobs:
 
       - name: Decrypt bundles
         run: |
-          export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
+          export BUNDLE_PASSPHRASE="$(printf %s "$BUNDLE_PASSPHRASE" | tr -d '[:space:]')"
           mkdir -p work/.makefun
           openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
-            -in bundles/shared.enc -out /tmp/shared.tar -pass env:XINGCHI_API_KEY
+            -in bundles/shared.enc -out /tmp/shared.tar -pass env:BUNDLE_PASSPHRASE
           tar xf /tmp/shared.tar -C work
           openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
-            -in bundles/acct-${{ matrix.n }}.enc -out /tmp/acct.tar -pass env:XINGCHI_API_KEY
+            -in bundles/acct-${{ matrix.n }}.enc -out /tmp/acct.tar -pass env:BUNDLE_PASSPHRASE
           tar xf /tmp/acct.tar -C work
           chmod 600 work/.makefun/credentials-${{ matrix.n }} work/makefun-keypair-${{ matrix.n }}.json
           rm -f /tmp/shared.tar /tmp/acct.tar
