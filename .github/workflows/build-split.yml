@@ -1,0 +1,127 @@
+name: makefun-build-split
+# SPLIT lane: GitHub Actions does CODING ONLY. make.fun credentials/keypair
+# never leave the VM: `makefun init` runs on the VM (split-prepare.py) and the
+# anchored repo travels here inside an encrypted payload
+# (payloads/<slug>/acct-<N>.enc). The runner builds with Codex, then uploads
+# an encrypted result (git bundle + Codex sessions + result json) as artifact
+# split-result-<N>. bundle/check/submit happen back on the VM (split-finish.py).
+# Manual dispatch only. Secrets: BUNDLE_PASSPHRASE + XINGCHI_API_KEY pool _1.._14.
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Competition slug (payloads/<slug>/acct-<N>.enc must exist)"
+        required: true
+        default: "news-image-20261121"
+      accounts:
+        description: "Comma-separated account numbers (payloads must be prepared first)"
+        required: true
+        default: ""
+      max_parallel:
+        description: "Max parallel build jobs"
+        required: false
+        default: "20"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          WANT: ${{ inputs.accounts }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          want = os.environ["WANT"].strip()
+          ns = [int(x) for x in want.split(",") if x.strip()]
+          ns = ns[:256]  # GitHub matrix hard cap per run
+          print(f"selected {len(ns)} accounts")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({"include": [{"n": n} for n in ns]}) + "\n")
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      XINGCHI_API_KEY: ${{ secrets.XINGCHI_API_KEY }}
+      XINGCHI_API_KEY_2: ${{ secrets.XINGCHI_API_KEY_2 }}
+      XINGCHI_API_KEY_3: ${{ secrets.XINGCHI_API_KEY_3 }}
+      XINGCHI_API_KEY_4: ${{ secrets.XINGCHI_API_KEY_4 }}
+      XINGCHI_API_KEY_5: ${{ secrets.XINGCHI_API_KEY_5 }}
+      XINGCHI_API_KEY_6: ${{ secrets.XINGCHI_API_KEY_6 }}
+      XINGCHI_API_KEY_7: ${{ secrets.XINGCHI_API_KEY_7 }}
+      XINGCHI_API_KEY_8: ${{ secrets.XINGCHI_API_KEY_8 }}
+      XINGCHI_API_KEY_9: ${{ secrets.XINGCHI_API_KEY_9 }}
+      XINGCHI_API_KEY_10: ${{ secrets.XINGCHI_API_KEY_10 }}
+      XINGCHI_API_KEY_11: ${{ secrets.XINGCHI_API_KEY_11 }}
+      XINGCHI_API_KEY_12: ${{ secrets.XINGCHI_API_KEY_12 }}
+      XINGCHI_API_KEY_13: ${{ secrets.XINGCHI_API_KEY_13 }}
+      XINGCHI_API_KEY_14: ${{ secrets.XINGCHI_API_KEY_14 }}
+      BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Cache npm + Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-codex-playwright-v1
+
+      - name: Decrypt payload
+        env:
+          SLUG: ${{ inputs.slug }}
+          N: ${{ matrix.n }}
+        run: |
+          export BUNDLE_PASSPHRASE="$(printf %s "$BUNDLE_PASSPHRASE" | tr -d '[:space:]')"
+          echo "BUNDLE_PASSPHRASE=$BUNDLE_PASSPHRASE" >> "$GITHUB_ENV"
+          SPLIT_BASE="$RUNNER_TEMP/split-acct-$N"
+          echo "SPLIT_BASE=$SPLIT_BASE" >> "$GITHUB_ENV"
+          mkdir -p "$SPLIT_BASE"
+          # brief paths are baked to /home/runner/work/_temp/...; symlink if needed
+          FIXED="/home/runner/work/_temp/split-acct-$N"
+          if [ "$SPLIT_BASE" != "$FIXED" ]; then
+            mkdir -p "$(dirname "$FIXED")"
+            ln -sfn "$SPLIT_BASE" "$FIXED"
+          fi
+          openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in "payloads/$SLUG/acct-$N.enc" -out /tmp/payload.tar -pass env:BUNDLE_PASSPHRASE
+          tar xf /tmp/payload.tar -C "$SPLIT_BASE"
+          rm -f /tmp/payload.tar
+          ls "$SPLIT_BASE"
+
+      - name: Install Codex + Playwright Chromium
+        run: |
+          npm install -g @openai/codex@0.170.0
+          npm init -y --prefix "$SPLIT_BASE" >/dev/null
+          npm install --prefix "$SPLIT_BASE" playwright-core@1.65.1
+          npx --prefix "$SPLIT_BASE" playwright-core install --with-deps chromium || \
+            npx playwright@1.65.1 install --with-deps chromium
+
+      - name: Build account ${{ matrix.n }} (coding only, no credentials)
+        run: |
+          export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
+          python3 split-build-one.py ${{ matrix.n }} || true
+          test -f split-result-${{ matrix.n }}.enc || echo "WARNING: no encrypted result produced"
+
+      - name: Upload encrypted result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: split-result-${{ matrix.n }}
+          path: split-result-${{ matrix.n }}.enc
+          retention-days: 14
+          if-no-files-found: warn
