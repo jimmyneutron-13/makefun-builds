@@ -2,7 +2,7 @@ name: makefun-build
 # Build + submit make.fun news-image-20261120 entries on GitHub-hosted runners.
 # Manual dispatch only. One matrix job per account, max 20 in parallel
 # (GitHub Free plan concurrency cap). Secrets needed: BUNDLE_PASSPHRASE
-# (decrypts bundles) + XINGCHI_API_KEY pool _1.._12 (feeds Codex, one key
+# (decrypts bundles) + XINGCHI_API_KEY pool _1.._14 (feeds Codex, one key
 # per account by account number).
 on:
   workflow_dispatch:
@@ -63,6 +63,8 @@ jobs:
       XINGCHI_API_KEY_10: ${{ secrets.XINGCHI_API_KEY_10 }}
       XINGCHI_API_KEY_11: ${{ secrets.XINGCHI_API_KEY_11 }}
       XINGCHI_API_KEY_12: ${{ secrets.XINGCHI_API_KEY_12 }}
+      XINGCHI_API_KEY_13: ${{ secrets.XINGCHI_API_KEY_13 }}
+      XINGCHI_API_KEY_14: ${{ secrets.XINGCHI_API_KEY_14 }}
       BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
       GH_WORK_DIR: ${{ github.workspace }}/work
     steps:
