@@ -23,7 +23,9 @@ import argparse, json, os, pathlib, re, shutil, subprocess, sys, tarfile, time
 HOME = pathlib.Path.home()
 GH = HOME / "workspace" / "gh-builds"
 MAKEFUN = HOME / "workspace" / "makefun"
-SPLIT_WORK = GH / "split-work"
+# NOTE: split-work must live OUTSIDE the gh-builds git repo: `makefun init`
+# refuses to run in a subdirectory of an existing git repository.
+SPLIT_WORK = MAKEFUN / "split-work"
 PAYLOADS = GH / "payloads"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 TITLES = {"news-image-20261121": "The Atlas Daily — Saturday 21 November 2026",

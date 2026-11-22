@@ -20,7 +20,9 @@ import argparse, json, os, pathlib, shutil, subprocess, sys, tarfile, time, zipf
 HOME = pathlib.Path.home()
 GH = HOME / "workspace" / "gh-builds"
 MAKEFUN = HOME / "workspace" / "makefun"
-SPLIT_WORK = GH / "split-work"
+# Must match split-prepare.py (outside the gh-builds git repo; makefun init
+# refuses subdirectories of an existing repository).
+SPLIT_WORK = MAKEFUN / "split-work"
 REPO_SLUG = "rasjdahw/makefun-builds"
 PARENT_SESSION = "/home/hatch/agents/agent-3ec4af1d-5ebf-4d29-a262-b348c9e24464/sessions/3ec4af1d-5ebf-4d29-a262-b348c9e24464.jsonl"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
