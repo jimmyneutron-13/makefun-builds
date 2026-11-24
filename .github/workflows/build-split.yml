@@ -132,7 +132,7 @@ jobs:
         if: inputs.provider == 'seek100'
         run: |
           python3 -m venv "$RUNNER_TEMP/litellm-venv"
-          "$RUNNER_TEMP/litellm-venv/bin/pip" install --quiet --upgrade pip litellm
+          "$RUNNER_TEMP/litellm-venv/bin/pip" install --quiet --upgrade pip 'litellm[proxy]'
           "$RUNNER_TEMP/litellm-venv/bin/litellm" --version
 
       - name: Start LiteLLM proxy (seek100 only)
