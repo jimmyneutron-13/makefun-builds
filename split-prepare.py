@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 """SPLIT pipeline, VM side step 1: prepare an anchored build payload for ONE
-make.fun account and push it (encrypted) to the rasjdahw GitHub lane.
+make.fun account and push it (encrypted) to the jimmyneutron-13 GitHub lane.
 
-Credentials and keypair NEVER leave this VM. This script:
+DIRECT-SUBMIT lane (user order 24 Nov 2026 17:22 WIB, "langsung upload submit
+tanpa perlu melalui vm", risks accepted): the encrypted payload ALSO carries
+the account credentials + keypair, the real system prompt, a gzipped snapshot
+of the parent Muse session, and the muse-usage file, so the runner can
+bundle/check/submit itself (split-submit-one.py). The whole tar is encrypted
+with openssl aes-256-cbc (passphrase from ~/.gh-bundle-pass / the
+BUNDLE_PASSPHRASE GitHub secret); plaintext credentials exist only inside the
+runner during its run. This supersedes the 22 Nov "credentials never leave
+the VM" split rule for this lane. This script:
   1. looks up the account in its origin ledger (~/workspace/makefun/accounts-*.jsonl)
   2. downloads a fresh public kit (https://make.fun/c/<slug>/kit)
   3. runs `makefun init` locally with the account's credentials + keypair
      (drand root commit + anchor), verifies the anchor wallet
   4. writes the build brief (same template as the VM spillover lane, paths
      rewritten to the fixed runner layout, credentials line removed)
-  5. tars repo+brief+anchor+meta+news+render script+codex profile,
-     encrypts with openssl aes-256-cbc (passphrase from ~/.gh-bundle-pass,
-     env only, never printed) -> payloads/<slug>/acct-<N>.enc
-  6. commits + pushes the payload to the rasjdahw remote
+  5. tars repo+brief+anchor+meta+news+render script+codex profile+credentials
+     +keypair+system-prompt+parent-session.gz+usage, encrypts with openssl
+     aes-256-cbc (passphrase from ~/.gh-bundle-pass, env only, never printed)
+     -> payloads/<slug>/acct-<N>.enc
+  6. commits + pushes the payload to the jimmyneutron-13 remote (origin)
 
-Usage: split-prepare.py <N> [--slug news-image-20261121] [--title "..."]
+Usage: split-prepare.py <N> [--slug news-image-20261123] [--title "..."]
        [--force] [--no-push]
 Prints a final JSON line. Never prints secret values.
 """
-import argparse, json, os, pathlib, re, shutil, subprocess, sys, tarfile, time
+import argparse, gzip, json, os, pathlib, re, shutil, subprocess, sys, tarfile, time
 
 HOME = pathlib.Path.home()
 GH = HOME / "workspace" / "gh-builds"
@@ -29,7 +38,11 @@ SPLIT_WORK = MAKEFUN / "split-work"
 PAYLOADS = GH / "payloads"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 TITLES = {"news-image-20261121": "The Atlas Daily — Saturday 21 November 2026",
+          "news-image-20261122": "The Atlas Daily — Sunday 22 November 2026",
+          "news-image-20261123": "The Atlas Daily — Monday 23 November 2026",
           "news-image-20261120": "The Atlas Daily — Friday 20 November 2026"}
+PARENT_SESSION = HOME / "agents" / "agent-3ec4af1d-5ebf-4d29-a262-b348c9e24464" / "sessions" / "3ec4af1d-5ebf-4d29-a262-b348c9e24464.jsonl"
+SYSTEM_PROMPT = MAKEFUN / "system-prompt-real.txt"
 # Fixed runner layout (GitHub-hosted ubuntu: RUNNER_TEMP=/home/runner/work/_temp;
 # the workflow symlinks this path if RUNNER_TEMP differs).
 RUNNER_BASE = "/home/runner/work/_temp/split-acct-{N}"
@@ -76,7 +89,7 @@ def already_live(ledger, n, slug):
 def main():
     ap = argparse.ArgumentParser(description="Prepare encrypted split-build payload for one account (VM side).")
     ap.add_argument("n", type=int)
-    ap.add_argument("--slug", default="news-image-20261121")
+    ap.add_argument("--slug", default="news-image-20261123")
     ap.add_argument("--title", default=None)
     ap.add_argument("--force", action="store_true", help="redo init/payload even if present")
     ap.add_argument("--no-push", action="store_true", help="build payload but do not commit/push")
@@ -175,10 +188,13 @@ def main():
     runner_base = RUNNER_BASE.format(N=N)
     brief = (tpl.replace("{N}", str(N)).replace("{HANDLE}", HANDLE)
                 .replace("{WALLET}", WALLET).replace("{ANCHOR}", ANCHOR).replace("{ROUND}", ROUND))
-    # credentials line: no credentials exist on the runner; Codex must not run makefun CLI
+    # credentials line: no credentials exist on this machine for CODEX to use;
+    # the driver (split-submit-one.py) submits with the payload credentials
+    # after the build. Codex must not run any makefun CLI command itself.
     brief = re.sub(r"CREDENTIALS:.*",
-                   "CREDENTIALS: none on this machine — do NOT run any makefun CLI command "
-                   "(init is already done; bundle/check/submit happen elsewhere). Never print or share any credential value.",
+                   "CREDENTIALS: none for you to use — do NOT run any makefun CLI command "
+                   "(init is already done; bundle/check/submit are done by the driver after "
+                   "your build, with credentials you must never ask for). Never print or share any credential value.",
                    brief)
     brief = (brief
              .replace(f"/home/hatch/workspace/makefun/{SLUG}-bot-acct{N}", f"{runner_base}/repo")
@@ -203,6 +219,22 @@ def main():
     news_src = MAKEFUN / news_name
     shoot_src = MAKEFUN / "shoot-tools" / "shoot-news105.mjs"
     toml_src = HOME / ".codex" / "xingchi.config.toml"
+    # DIRECT-SUBMIT payload contents (user order 24 Nov 2026): the whole tar is
+    # encrypted, so these ride inside it. Credentials/keypair are COPIES of the
+    # VM files (originals stay put). Parent session is gzipped (27MB -> ~3MB).
+    creds_copy = work / "credentials.json"
+    keypair_copy = work / "keypair.json"
+    shutil.copy2(creds, creds_copy)
+    shutil.copy2(keypair, keypair_copy)
+    os.chmod(creds_copy, 0o600); os.chmod(keypair_copy, 0o600)
+    parent_gz = work / "parent-session.jsonl.gz"
+    if PARENT_SESSION.exists():
+        with open(PARENT_SESSION, "rb") as f_in, gzip.open(parent_gz, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        log(f"parent session snapshot gzipped: {parent_gz.stat().st_size} bytes")
+    else:
+        log("WARNING: parent session file missing, payload will lack it")
+    usage_src = HOME / ".makefun" / f"muse-usage-{SLUG}.jsonl"
     with tarfile.open(tar_path, "w") as tf:
         tf.add(repo, arcname="repo")
         tf.add(brief_path, arcname="brief.txt")
@@ -211,26 +243,34 @@ def main():
         if news_src.exists(): tf.add(news_src, arcname=news_name)
         if shoot_src.exists(): tf.add(shoot_src, arcname="shoot-news105.mjs")
         if toml_src.exists(): tf.add(toml_src, arcname="xingchi.config.toml")
+        tf.add(creds_copy, arcname="credentials.json")
+        tf.add(keypair_copy, arcname="keypair.json")
+        if SYSTEM_PROMPT.exists(): tf.add(SYSTEM_PROMPT, arcname="system-prompt-real.txt")
+        if parent_gz.exists(): tf.add(parent_gz, arcname="parent-session.jsonl.gz")
+        if usage_src.exists(): tf.add(usage_src, arcname=f"muse-usage-{SLUG}.jsonl")
     encrypt(tar_path, enc_path, passphrase())
     tar_path.unlink(missing_ok=True)
     result["payload"] = str(enc_path.relative_to(GH))
     result["payload_bytes"] = enc_path.stat().st_size
     log(f"payload encrypted: {result['payload']} ({result['payload_bytes']} bytes)")
 
-    # 5. commit + push to rasjdahw
+    # 5. commit + push to origin (jimmyneutron-13). SSH via ssh.github.com:443
+    # through the runtime proxy; default key is registered on jimmyneutron-13
+    # (verified 24 Nov 2026: git ls-remote origin works with this command).
+    # The old rasjdahw remote is suspended; do not push there.
     if args.no_push:
         result["pushed"] = False
     else:
         rel = str(enc_path.relative_to(GH))
         r = run(["git", "add", rel], cwd=GH)
         r = run(["git", "commit", "-q", "-m", f"split payload {SLUG} acct-{N}"], cwd=GH)
-        ssh_cmd = (f"ssh -p 443 -i {HOME}/.ssh/id_ed25519_rasjdahw -o IdentitiesOnly=yes "
+        ssh_cmd = (f"ssh -p 443 -i {HOME}/.ssh/id_ed25519 -o IdentitiesOnly=yes "
                    f"-o ProxyCommand='python3 {GH}/connect-proxy.py %h %p' -o StrictHostKeyChecking=accept-new")
-        r = run(["git", "push", "rasjdahw", "HEAD:main"], cwd=GH,
+        r = run(["git", "push", "origin", "HEAD:main"], cwd=GH,
                 env_extra={"GIT_SSH_COMMAND": ssh_cmd}, timeout=600)
         result["pushed"] = (r.returncode == 0)
         result["push_tail"] = (r.stdout + r.stderr)[-400:]
-        log(f"push rasjdahw: {'ok' if result['pushed'] else 'FAILED'}")
+        log(f"push origin: {'ok' if result['pushed'] else 'FAILED'}")
         if not result["pushed"]:
             result["error"] = "git push failed"
             print(json.dumps(result)); sys.exit(1)

@@ -202,6 +202,28 @@ try:
         r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO)],
                            cwd=REPO, env=dict(os.environ), stdin=bf, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
     log(f"codex build exit {r.returncode}")
+    # Resume-continue loop (added 24 Nov 2026): pilot #2 (acct 1371) died with
+    # "Incomplete response returned, reason: max_output_tokens" after 444k
+    # tokens of planning and no composition.html. A truncated turn is
+    # recoverable: resume the same session and tell it to stop planning and
+    # write the files. Up to 2 continue turns before giving up.
+    for _attempt in range(2):
+        if (REPO / "composition.html").exists():
+            break
+        _m = re.search(r"session id: ([0-9a-f-]{36})", BUILD_LOG.read_text(errors="replace"))
+        if not _m:
+            break
+        _sid = _m.group(1)
+        _cont = ("Your previous turn was cut off before you finished. Continue exactly where you left off: "
+                 "stop planning and write composition.html NOW with the layout you already decided, then main.ts "
+                 "and the verify script per the brief. Keep code tight; do not start new helper tools. "
+                 "Do NOT commit yet and do NOT submit — the driver renders entry.png and resumes you.")
+        log(f"resume-continue attempt {_attempt + 1} session {_sid}")
+        with open(BUILD_LOG, "a") as lf:
+            r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO),
+                                "resume", _sid, _cont],
+                               cwd=REPO, env=dict(os.environ), stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
+        log(f"resume-continue exit {r.returncode}")
     if not (REPO / "composition.html").exists():
         fail("codex build produced no composition.html", tail=BUILD_LOG.read_text(errors="replace")[-800:])
     mark("build_done")

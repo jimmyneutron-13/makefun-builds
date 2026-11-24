@@ -1,11 +1,13 @@
 name: makefun-build-split
-# SPLIT lane: GitHub Actions does CODING ONLY. make.fun credentials/keypair
-# never leave the VM: `makefun init` runs on the VM (split-prepare.py) and the
-# anchored repo travels here inside an encrypted payload
-# (payloads/<slug>/acct-<N>.enc). The runner builds with Codex, then uploads
-# an encrypted result (git bundle + Codex sessions + result json) as artifact
-# split-result-<N>. bundle/check/submit happen back on the VM (split-finish.py).
-# Manual dispatch only. Secrets: BUNDLE_PASSPHRASE + XINGCHI_API_KEY pool _1.._14.
+# DIRECT-SUBMIT lane (user order 24 Nov 2026 17:22 WIB): GitHub Actions does
+# the WHOLE entry — Codex build, then bundle/check/submit on the runner, no VM
+# round-trip. The payload (payloads/<slug>/acct-<N>.enc) carries the account
+# credentials + keypair + system prompt + parent-session snapshot inside its
+# encrypted tar (BUNDLE_PASSPHRASE secret); plaintext credentials exist only
+# inside the runner during its run. The encrypted build result is still
+# uploaded too, so a failed direct submit can fall back to the VM finish
+# (split-finish.py). Manual dispatch only. Secrets: BUNDLE_PASSPHRASE +
+# SEEK100_API_KEY_1..8 + XINGCHI_API_KEY pool _1.._14 (fallback).
 on:
   workflow_dispatch:
     inputs:
@@ -53,7 +55,7 @@ jobs:
   build:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(inputs.max_parallel) }}
@@ -162,7 +164,7 @@ jobs:
           done
           if [ "$CODE" != "200" ]; then echo "litellm proxy did not come up"; tail -50 "$RUNNER_TEMP/litellm.log"; exit 1; fi
 
-      - name: Build account ${{ matrix.n }} (coding only, no credentials)
+      - name: Build account ${{ matrix.n }}
         env:
           PROVIDER: ${{ inputs.provider }}
         run: |
@@ -170,11 +172,24 @@ jobs:
           python3 split-build-one.py ${{ matrix.n }} || true
           test -f split-result-${{ matrix.n }}.enc || echo "WARNING: no encrypted result produced"
 
+      - name: Submit account ${{ matrix.n }} (direct, no VM)
+        run: |
+          python3 split-submit-one.py ${{ matrix.n }}
+
       - name: Upload encrypted result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: split-result-${{ matrix.n }}
           path: split-result-${{ matrix.n }}.enc
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload submitted result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: split-submitted-${{ matrix.n }}
+          path: submitted-${{ matrix.n }}.json
           retention-days: 14
           if-no-files-found: warn

@@ -93,7 +93,7 @@ def already_live(ledger, n, slug):
             return True
     return False
 
-def finish_one(n, slug, dry_run):
+def finish_one(n, slug, dry_run, artifact_zip=None):
     result = {"n": n, "slug": slug, "ok": False}
     work = SPLIT_WORK / slug / f"acct-{n}"
     meta_path = work / "meta.json"
@@ -114,18 +114,24 @@ def finish_one(n, slug, dry_run):
         result.update({"ok": True, "skipped": "already live in ledger"})
         log(n, "already live in ledger, skipping"); return result
 
-    # 1. artifact
-    art = find_artifact(n)
-    if not art:
-        result["error"] = "no split-result artifact found (workflow not dispatched yet?)"
-        log(n, result["error"]); return result
-    result["artifact_id"] = art["id"]; result["artifact_created"] = art.get("created_at")
-    log(n, f"artifact {art['id']} created {art.get('created_at')}")
+    # 1. artifact (API download, or a local zip already fetched e.g. via browser)
     dl = work / "download"
     if dl.exists(): shutil.rmtree(dl)
     dl.mkdir(parents=True)
-    if not download_artifact(art, dl / "artifact.zip"):
-        result["error"] = "artifact download failed"; log(n, result["error"]); return result
+    if artifact_zip:
+        import shutil as _sh
+        _sh.copy2(artifact_zip, dl / "artifact.zip")
+        result["artifact_id"] = "local"
+        log(n, f"using local artifact zip {artifact_zip}")
+    else:
+        art = find_artifact(n)
+        if not art:
+            result["error"] = "no split-result artifact found (workflow not dispatched yet?)"
+            log(n, result["error"]); return result
+        result["artifact_id"] = art["id"]; result["artifact_created"] = art.get("created_at")
+        log(n, f"artifact {art['id']} created {art.get('created_at')}")
+        if not download_artifact(art, dl / "artifact.zip"):
+            result["error"] = "artifact download failed"; log(n, result["error"]); return result
     with zipfile.ZipFile(dl / "artifact.zip") as zf:
         zf.extractall(dl)
     enc = dl / f"split-result-{n}.enc"
@@ -281,11 +287,12 @@ def main():
     ap.add_argument("ns", nargs="+", type=int, help="account numbers")
     ap.add_argument("--slug", default="news-image-20261121")
     ap.add_argument("--dry-run", action="store_true", help="stop before bundle/check/submit; no ledger writes")
+    ap.add_argument("--artifact-zip", default=None, help="local split-result-<N>.zip already downloaded (skips GitHub API download)")
     args = ap.parse_args()
     results = []
     for n in args.ns:
         try:
-            results.append(finish_one(n, args.slug, args.dry_run))
+            results.append(finish_one(n, args.slug, args.dry_run, args.artifact_zip))
         except Exception as e:
             results.append({"n": n, "ok": False, "error": f"exception: {type(e).__name__}: {str(e)[:300]}"})
     print(json.dumps(results, indent=1))
