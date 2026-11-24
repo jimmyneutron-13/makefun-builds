@@ -47,6 +47,28 @@ SYSTEM_PROMPT = MAKEFUN / "system-prompt-real.txt"
 # the workflow symlinks this path if RUNNER_TEMP differs).
 RUNNER_BASE = "/home/runner/work/_temp/split-acct-{N}"
 
+def find_local_kit(slug):
+    """Newest verified unpacked kit copy on this VM (same public bundle the
+    IPNext lane already used to go live), or None. The kit endpoint
+    https://make.fun/c/<slug>/kit returned 503 overloaded on 25 Nov 2026,
+    so a fresh download is not available; reusing a local copy of the same
+    bundle (bundle_sha256 444e0a0c67da6736, harness@969cfe34) is the fallback.
+    The kit is public and account-independent; only its cli/makefun.mjs and
+    RULES.txt/competition.yaml are used. Never read starter code from it."""
+    best = None
+    for d in sorted(MAKEFUN.glob(f"{slug}-kit-*")):
+        inner = d / f"{slug}-kit"
+        k = inner / "cli" / "makefun.mjs"
+        if not k.exists():
+            continue
+        # Newest kit copy by directory mtime (kit-1542, used by IPNext wave 6
+        # to go live 04:48 WIB, beats older copies: harness versions drift
+        # across downloads even when bundle_sha256 matches).
+        mtime = d.stat().st_mtime
+        if best is None or mtime > best[0]:
+            best = (mtime, inner)
+    return best[1] if best else None
+
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -118,26 +140,37 @@ def main():
     meta_path = work / "meta.json"
     work.mkdir(parents=True, exist_ok=True)
 
-    # 1. fresh kit (public download, no auth)
+    # 1. fresh kit (public download, no auth) — or reuse a verified local
+    # copy when the kit endpoint is down (25 Nov 2026: 503 overloaded, the
+    # download returns a 2.8 KB JSON error, not a kit).
     if not (kit / "cli" / "makefun.mjs").exists():
         kitdir.mkdir(parents=True, exist_ok=True)
-        tarball = kitdir / "kit.tar.gz"
-        r = None
-        for attempt in range(4):
-            r = run(["curl", "-sSL", "-A", UA, "-o", str(tarball), f"https://make.fun/c/{SLUG}/kit"], timeout=300)
-            if r.returncode == 0 and tarball.exists() and tarball.stat().st_size > 100000:
-                break
-            log(f"kit download attempt {attempt+1} failed, retrying in 30s")
-            time.sleep(30)
-        if r.returncode != 0 or not tarball.exists():
-            result["error"] = "kit download failed"; result["tail"] = (r.stdout + r.stderr)[-500:]
-            print(json.dumps(result)); sys.exit(1)
-        r = run(["tar", "xzf", str(tarball), "-C", str(kitdir)], timeout=300)
-        tarball.unlink(missing_ok=True)
-        if not (kit / "cli" / "makefun.mjs").exists():
-            result["error"] = "kit unpack failed"; result["tail"] = (r.stdout + r.stderr)[-500:]
-            print(json.dumps(result)); sys.exit(1)
-        log("kit ready")
+        local = find_local_kit(SLUG)
+        if local is not None:
+            shutil.copytree(local, kit, dirs_exist_ok=True)
+            if (kit / "cli" / "makefun.mjs").exists():
+                log(f"kit reused from local copy {local} (download endpoint down)")
+            else:
+                result["error"] = "local kit copy incomplete"
+                print(json.dumps(result)); sys.exit(1)
+        else:
+            tarball = kitdir / "kit.tar.gz"
+            r = None
+            for attempt in range(4):
+                r = run(["curl", "-sSL", "-A", UA, "-o", str(tarball), f"https://make.fun/c/{SLUG}/kit"], timeout=300)
+                if r.returncode == 0 and tarball.exists() and tarball.stat().st_size > 100000:
+                    break
+                log(f"kit download attempt {attempt+1} failed, retrying in 30s")
+                time.sleep(30)
+            if r.returncode != 0 or not tarball.exists():
+                result["error"] = "kit download failed"; result["tail"] = (r.stdout + r.stderr)[-500:]
+                print(json.dumps(result)); sys.exit(1)
+            r = run(["tar", "xzf", str(tarball), "-C", str(kitdir)], timeout=300)
+            tarball.unlink(missing_ok=True)
+            if not (kit / "cli" / "makefun.mjs").exists():
+                result["error"] = "kit unpack failed"; result["tail"] = (r.stdout + r.stderr)[-500:]
+                print(json.dumps(result)); sys.exit(1)
+            log("kit ready")
 
     # 2. repo + init (credentials + keypair stay on this VM)
     if args.force and repo.exists():
@@ -241,6 +274,11 @@ def main():
         tf.add(work / "anchor.txt", arcname="anchor.txt")
         tf.add(meta_path, arcname="meta.json")
         if news_src.exists(): tf.add(news_src, arcname=news_name)
+        # Kit rides inside the payload (25 Nov 2026: the runner would otherwise
+        # have to download it fresh and hit the same 503 overloaded endpoint).
+        # split-build-one.py / split-submit-one.py skip their download when
+        # kit/<slug>-kit/cli/makefun.mjs already exists.
+        if kit.exists(): tf.add(kit, arcname=f"kit/{SLUG}-kit")
         if shoot_src.exists(): tf.add(shoot_src, arcname="shoot-news105.mjs")
         if toml_src.exists(): tf.add(toml_src, arcname="xingchi.config.toml")
         tf.add(creds_copy, arcname="credentials.json")
