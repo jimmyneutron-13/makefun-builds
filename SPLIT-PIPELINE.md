@@ -52,6 +52,36 @@ This lane runs alongside the existing all-in-Actions lane
    origin ledger + `finished.json` state. Idempotent: live/finished accounts
    are skipped. `--dry-run` stops before bundle/check/submit.
 
+## seek100 lane (primary since 24 Nov 2026 — Xingchi 503, lane order: seek100 > Xingchi > IPNext/Muse-reserve)
+
+User order 24 Nov 2026 ~13:04 WIB: GitHub Actions must not sit idle waiting
+for Xingchi — build with 100milionseek instead. IPNext / anything that burns
+Muse tokens is NEVER part of this workflow (reserve only).
+
+- Workflow input `provider` (`workflow_dispatch`, choice, default `seek100`):
+  `seek100` = 100milionseek via local LiteLLM proxy on the runner;
+  `xingchi` = the old Xingchi path (kept intact as fallback for when Xingchi recovers).
+- seek100 mechanics: endpoint `https://100milionseek.top/v1`, model
+  `deepseek-v4.1-flash-free`, Chat Completions only (no `/v1/responses`).
+  The runner installs LiteLLM into a venv (`~/.cache/pip` cached), then
+  starts `litellm --config litellm-config.yaml --port 4100` with
+  `OPENAI_API_KEY` = the selected SEEK100 secret and a random per-run
+  `LITELLM_MASTER_KEY` (Codex sends the same value as `LITELLM_API_KEY`).
+  Codex runs with `-p seek100` (`seek100.config.toml` in repo root:
+  `base_url http://127.0.0.1:4100/v1`, `wire_api = "responses"`).
+  The proxy health-check (`/v1/models` with the proxy key) must return 200
+  before the build step runs, or the job fails fast.
+- Key rotation: secrets `SEEK100_API_KEY_1..8` (already in the repo); slot =
+  `N % 8 + 1` per account (same pattern as the Xingchi 14-slot pool).
+  Only the slot NUMBER is ever printed.
+- Keys verified LIVE 15/15 (24 Nov, curl + browser User-Agent). WARNING: a
+  plain urllib/curl call from a datacenter IP gets Cloudflare error 1010
+  (HTTP 403) — that is NOT a dead key. Never declare a seek100 key dead from
+  a bare 403; re-test with a browser User-Agent first.
+- Everything else unchanged: payload decrypt, Codex build, render, resume,
+  encrypted artifact, VM finish. Concurrency default stays 20
+  (`max_parallel` input); pilot with `max_parallel=1` first.
+
 ## Usage (once Xingchi is back)
 
 ```bash

@@ -21,6 +21,14 @@ on:
         description: "Max parallel build jobs"
         required: false
         default: "20"
+      provider:
+        description: "Build provider (seek100 = 100milionseek via LiteLLM, xingchi = fallback)"
+        required: false
+        default: "seek100"
+        type: choice
+        options:
+          - seek100
+          - xingchi
 
 jobs:
   prepare:
@@ -65,6 +73,14 @@ jobs:
       XINGCHI_API_KEY_12: ${{ secrets.XINGCHI_API_KEY_12 }}
       XINGCHI_API_KEY_13: ${{ secrets.XINGCHI_API_KEY_13 }}
       XINGCHI_API_KEY_14: ${{ secrets.XINGCHI_API_KEY_14 }}
+      SEEK100_API_KEY: ${{ secrets.SEEK100_API_KEY_1 }}
+      SEEK100_API_KEY_2: ${{ secrets.SEEK100_API_KEY_2 }}
+      SEEK100_API_KEY_3: ${{ secrets.SEEK100_API_KEY_3 }}
+      SEEK100_API_KEY_4: ${{ secrets.SEEK100_API_KEY_4 }}
+      SEEK100_API_KEY_5: ${{ secrets.SEEK100_API_KEY_5 }}
+      SEEK100_API_KEY_6: ${{ secrets.SEEK100_API_KEY_6 }}
+      SEEK100_API_KEY_7: ${{ secrets.SEEK100_API_KEY_7 }}
+      SEEK100_API_KEY_8: ${{ secrets.SEEK100_API_KEY_8 }}
       BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
     steps:
       - uses: actions/checkout@v4
@@ -73,13 +89,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Cache npm + Playwright browsers
+      - name: Cache npm + Playwright browsers + pip
         uses: actions/cache@v4
         with:
           path: |
             ~/.npm
             ~/.cache/ms-playwright
-          key: ${{ runner.os }}-codex-playwright-v1
+            ~/.cache/pip
+          key: ${{ runner.os }}-codex-playwright-litellm-v1
 
       - name: Decrypt payload
         env:
@@ -111,7 +128,43 @@ jobs:
           npx --prefix "$SPLIT_BASE" playwright-core install --with-deps chromium || \
             npx playwright@1.65.1 install --with-deps chromium
 
+      - name: Install LiteLLM (seek100 only)
+        if: inputs.provider == 'seek100'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/litellm-venv"
+          "$RUNNER_TEMP/litellm-venv/bin/pip" install --quiet --upgrade pip litellm
+          "$RUNNER_TEMP/litellm-venv/bin/litellm" --version
+
+      - name: Start LiteLLM proxy (seek100 only)
+        if: inputs.provider == 'seek100'
+        env:
+          N: ${{ matrix.n }}
+        run: |
+          # SEEK100 slot rotation (mirrors the Xingchi 14-slot pool, 8 keys):
+          # slot = N % 8 + 1; only the slot NUMBER is ever printed.
+          SLOT=$(( (N % 8) + 1 ))
+          if [ "$SLOT" -eq 1 ]; then UPSTREAM_KEY="$SEEK100_API_KEY"; else
+            VAR="SEEK100_API_KEY_$SLOT"; UPSTREAM_KEY="${!VAR}"
+          fi
+          if [ -z "$UPSTREAM_KEY" ]; then echo "SEEK100 slot $SLOT secret is empty"; exit 1; fi
+          echo "SEEK100_SLOT=$SLOT" >> "$GITHUB_ENV"
+          PROXY_KEY="$(openssl rand -hex 16)"
+          echo "LITELLM_API_KEY=$PROXY_KEY" >> "$GITHUB_ENV"
+          OPENAI_API_KEY="$UPSTREAM_KEY" LITELLM_MASTER_KEY="$PROXY_KEY" \
+            "$RUNNER_TEMP/litellm-venv/bin/litellm" --config "$GITHUB_WORKSPACE/litellm-config.yaml" --port 4100 \
+            > "$RUNNER_TEMP/litellm.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/litellm.pid"
+          CODE=0
+          for i in $(seq 1 60); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PROXY_KEY" http://127.0.0.1:4100/v1/models || true)
+            if [ "$CODE" = "200" ]; then echo "litellm proxy up (seek100 slot $SLOT)"; break; fi
+            sleep 2
+          done
+          if [ "$CODE" != "200" ]; then echo "litellm proxy did not come up"; tail -50 "$RUNNER_TEMP/litellm.log"; exit 1; fi
+
       - name: Build account ${{ matrix.n }} (coding only, no credentials)
+        env:
+          PROVIDER: ${{ inputs.provider }}
         run: |
           export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
           python3 split-build-one.py ${{ matrix.n }} || true

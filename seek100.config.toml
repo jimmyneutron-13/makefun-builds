@@ -1,0 +1,14 @@
+# Profil 100milionseek untuk Codex npm (jalur utama lane GitHub sejak 24 Nov 2026).
+# Dipakai dengan: codex exec -p seek100 ...
+# Codex bicara Responses API ke proxy LiteLLM lokal (127.0.0.1:4100);
+# LiteLLM menerjemahkan ke Chat Completions 100milionseek.top.
+# Jangan tulis API key asli di file ini; key upstream dibaca LiteLLM dari env,
+# dan auth ke proxy memakai LITELLM_API_KEY (random per run, dari workflow).
+model = "deepseek-v4.1-flash-free"
+model_provider = "seek100"
+
+[model_providers.seek100]
+name = "seek100"
+base_url = "http://127.0.0.1:4100/v1"
+env_key = "LITELLM_API_KEY"
+wire_api = "responses"

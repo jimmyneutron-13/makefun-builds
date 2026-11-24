@@ -113,25 +113,49 @@ def fail(msg, **kw):
     package_and_exit()
 
 try:
-    # Xingchi key pool: same 14-slot logic as gh-build-one.py (slot number only in log)
-    _pool = []
-    for _slot in range(1, 15):
-        _name = "XINGCHI_API_KEY" if _slot == 1 else f"XINGCHI_API_KEY_{_slot}"
-        _val = "".join((os.environ.get(_name) or "").split())
-        if _val: _pool.append((_slot, _val))
-    if _pool:
-        _slot, _val = _pool[N % len(_pool)]
-        os.environ["XINGCHI_API_KEY"] = _val
-        log(f"using Xingchi key slot {_slot}/{len(_pool)}")
-    if not os.environ.get("XINGCHI_API_KEY"):
-        fail("XINGCHI_API_KEY env missing (set the GitHub secret)")
-
-    # Codex xingchi profile (no secret inside; key comes from env)
     codex_home = pathlib.Path.home() / ".codex"
     codex_home.mkdir(parents=True, exist_ok=True)
-    prof = codex_home / "xingchi.config.toml"
-    if not prof.exists() and (BASE / "xingchi.config.toml").exists():
-        prof.write_text((BASE / "xingchi.config.toml").read_text())
+    # Provider: seek100 (default, 100milionseek via local LiteLLM proxy) or
+    # xingchi (fallback when Xingchi recovers). Selected by the workflow
+    # dispatch input `provider`; IPNext/Muse tokens are NEVER used here.
+    PROVIDER = (os.environ.get("PROVIDER") or "seek100").strip().lower()
+    if PROVIDER == "seek100":
+        # Codex speaks Responses API to 127.0.0.1:4100; LiteLLM translates
+        # to Chat Completions at 100milionseek.top. The proxy was started
+        # by the workflow step; this script only needs the per-run proxy
+        # auth key (LITELLM_API_KEY). The upstream SEEK100 key never
+        # enters this script — only its slot number is logged.
+        if not os.environ.get("LITELLM_API_KEY"):
+            fail("seek100 selected but LITELLM_API_KEY env missing (LiteLLM proxy step did not run?)")
+        repo_prof = pathlib.Path.cwd() / "seek100.config.toml"
+        prof = codex_home / "seek100.config.toml"
+        if repo_prof.exists():
+            prof.write_text(repo_prof.read_text())
+        elif not prof.exists():
+            fail("seek100.config.toml missing from repo checkout")
+        PROFILE = "seek100"
+        log(f"using seek100 via LiteLLM proxy (SEEK100 slot {os.environ.get('SEEK100_SLOT', '?')}/8)")
+    elif PROVIDER == "xingchi":
+        # Xingchi key pool: same 14-slot logic as gh-build-one.py (slot number only in log)
+        _pool = []
+        for _slot in range(1, 15):
+            _name = "XINGCHI_API_KEY" if _slot == 1 else f"XINGCHI_API_KEY_{_slot}"
+            _val = "".join((os.environ.get(_name) or "").split())
+            if _val: _pool.append((_slot, _val))
+        if _pool:
+            _slot, _val = _pool[N % len(_pool)]
+            os.environ["XINGCHI_API_KEY"] = _val
+            log(f"using Xingchi key slot {_slot}/{len(_pool)}")
+        if not os.environ.get("XINGCHI_API_KEY"):
+            fail("XINGCHI_API_KEY env missing (set the GitHub secret)")
+
+        # Codex xingchi profile (no secret inside; key comes from env)
+        prof = codex_home / "xingchi.config.toml"
+        if not prof.exists() and (BASE / "xingchi.config.toml").exists():
+            prof.write_text((BASE / "xingchi.config.toml").read_text())
+        PROFILE = "xingchi"
+    else:
+        fail(f"unknown PROVIDER {PROVIDER!r} (want seek100 or xingchi)")
 
     # 1. fresh kit (public, no auth)
     if not (KIT / "cli" / "makefun.mjs").exists():
@@ -175,7 +199,7 @@ try:
     # 3. codex build (NO makefun credentials on this machine)
     log("codex build starting")
     with open(BUILD_LOG, "w") as lf, open(BRIEF) as bf:
-        r = subprocess.run([CODEX, "exec", "-p", "xingchi", "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO)],
+        r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO)],
                            cwd=REPO, env=dict(os.environ), stdin=bf, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
     log(f"codex build exit {r.returncode}")
     if not (REPO / "composition.html").exists():
@@ -199,7 +223,7 @@ try:
 1. Run your verify script: PNG signature/chunks, exactly 1024x1024, at most 1 MiB, story-block count equals banner.
 2. Run main.ts twice (second run from cwd=/), byte-identical outputs, entry.png present in both.
 3. If a structural check fails, fix it with a genuine edit and tell the driver it needs a re-render (do NOT commit yet). If all structural checks pass, commit exactly one commit on top of existing history via the /tmp git bundle method from your brief (/tmp/bundle-news{N}/entry.bundle). Report: commit sha, anchor round {ROUND}, story count (verified), entry.png size + dimensions, determinism result, your 3 lead stories. Do NOT submit."""
-    r = run([CODEX, "exec", "-p", "xingchi", "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO),
+    r = run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO),
              "resume", SID, resume_prompt], cwd=REPO, timeout=2400)
     RESUME_LOG.write_text(r.stdout + r.stderr)
     log(f"resume exit {r.returncode}")
