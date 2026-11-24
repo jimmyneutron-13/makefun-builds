@@ -7,7 +7,7 @@ name: makefun-build-split
 # inside the runner during its run. The encrypted build result is still
 # uploaded too, so a failed direct submit can fall back to the VM finish
 # (split-finish.py). Manual dispatch only. Secrets: BUNDLE_PASSPHRASE +
-# SEEK100_API_KEY_1..8 + XINGCHI_API_KEY pool _1.._14 (fallback).
+# SEEK100_API_KEY_1..43 + XINGCHI_API_KEY pool _1.._14 (fallback).
 on:
   workflow_dispatch:
     inputs:
@@ -83,6 +83,41 @@ jobs:
       SEEK100_API_KEY_6: ${{ secrets.SEEK100_API_KEY_6 }}
       SEEK100_API_KEY_7: ${{ secrets.SEEK100_API_KEY_7 }}
       SEEK100_API_KEY_8: ${{ secrets.SEEK100_API_KEY_8 }}
+      SEEK100_API_KEY_9: ${{ secrets.SEEK100_API_KEY_9 }}
+      SEEK100_API_KEY_10: ${{ secrets.SEEK100_API_KEY_10 }}
+      SEEK100_API_KEY_11: ${{ secrets.SEEK100_API_KEY_11 }}
+      SEEK100_API_KEY_12: ${{ secrets.SEEK100_API_KEY_12 }}
+      SEEK100_API_KEY_13: ${{ secrets.SEEK100_API_KEY_13 }}
+      SEEK100_API_KEY_14: ${{ secrets.SEEK100_API_KEY_14 }}
+      SEEK100_API_KEY_15: ${{ secrets.SEEK100_API_KEY_15 }}
+      SEEK100_API_KEY_16: ${{ secrets.SEEK100_API_KEY_16 }}
+      SEEK100_API_KEY_17: ${{ secrets.SEEK100_API_KEY_17 }}
+      SEEK100_API_KEY_18: ${{ secrets.SEEK100_API_KEY_18 }}
+      SEEK100_API_KEY_19: ${{ secrets.SEEK100_API_KEY_19 }}
+      SEEK100_API_KEY_20: ${{ secrets.SEEK100_API_KEY_20 }}
+      SEEK100_API_KEY_21: ${{ secrets.SEEK100_API_KEY_21 }}
+      SEEK100_API_KEY_22: ${{ secrets.SEEK100_API_KEY_22 }}
+      SEEK100_API_KEY_23: ${{ secrets.SEEK100_API_KEY_23 }}
+      SEEK100_API_KEY_24: ${{ secrets.SEEK100_API_KEY_24 }}
+      SEEK100_API_KEY_25: ${{ secrets.SEEK100_API_KEY_25 }}
+      SEEK100_API_KEY_26: ${{ secrets.SEEK100_API_KEY_26 }}
+      SEEK100_API_KEY_27: ${{ secrets.SEEK100_API_KEY_27 }}
+      SEEK100_API_KEY_28: ${{ secrets.SEEK100_API_KEY_28 }}
+      SEEK100_API_KEY_29: ${{ secrets.SEEK100_API_KEY_29 }}
+      SEEK100_API_KEY_30: ${{ secrets.SEEK100_API_KEY_30 }}
+      SEEK100_API_KEY_31: ${{ secrets.SEEK100_API_KEY_31 }}
+      SEEK100_API_KEY_32: ${{ secrets.SEEK100_API_KEY_32 }}
+      SEEK100_API_KEY_33: ${{ secrets.SEEK100_API_KEY_33 }}
+      SEEK100_API_KEY_34: ${{ secrets.SEEK100_API_KEY_34 }}
+      SEEK100_API_KEY_35: ${{ secrets.SEEK100_API_KEY_35 }}
+      SEEK100_API_KEY_36: ${{ secrets.SEEK100_API_KEY_36 }}
+      SEEK100_API_KEY_37: ${{ secrets.SEEK100_API_KEY_37 }}
+      SEEK100_API_KEY_38: ${{ secrets.SEEK100_API_KEY_38 }}
+      SEEK100_API_KEY_39: ${{ secrets.SEEK100_API_KEY_39 }}
+      SEEK100_API_KEY_40: ${{ secrets.SEEK100_API_KEY_40 }}
+      SEEK100_API_KEY_41: ${{ secrets.SEEK100_API_KEY_41 }}
+      SEEK100_API_KEY_42: ${{ secrets.SEEK100_API_KEY_42 }}
+      SEEK100_API_KEY_43: ${{ secrets.SEEK100_API_KEY_43 }}
       BUNDLE_PASSPHRASE: ${{ secrets.BUNDLE_PASSPHRASE }}
     steps:
       - uses: actions/checkout@v4
@@ -142,9 +177,9 @@ jobs:
         env:
           N: ${{ matrix.n }}
         run: |
-          # SEEK100 slot rotation (mirrors the Xingchi 14-slot pool, 8 keys):
-          # slot = N % 8 + 1; only the slot NUMBER is ever printed.
-          SLOT=$(( (N % 8) + 1 ))
+          # SEEK100 slot rotation (mirrors the Xingchi 14-slot pool, 43 keys):
+          # slot = N % 43 + 1; only the slot NUMBER is ever printed.
+          SLOT=$(( (N % 43) + 1 ))
           if [ "$SLOT" -eq 1 ]; then UPSTREAM_KEY="$SEEK100_API_KEY"; else
             VAR="SEEK100_API_KEY_$SLOT"; UPSTREAM_KEY="${!VAR}"
           fi
