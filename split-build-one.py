@@ -198,10 +198,17 @@ try:
 
     # 3. codex build (NO makefun credentials on this machine)
     log("codex build starting")
-    with open(BUILD_LOG, "w") as lf, open(BRIEF) as bf:
-        r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO)],
-                           cwd=REPO, env=dict(os.environ), stdin=bf, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
-    log(f"codex build exit {r.returncode}")
+    try:
+        with open(BUILD_LOG, "w") as lf, open(BRIEF) as bf:
+            r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO)],
+                               cwd=REPO, env=dict(os.environ), stdin=bf, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
+        log(f"codex build exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        # Stuck build (e.g. Reconnecting loop) must NOT crash the driver:
+        # fall through to the resume-continue loop, which resumes the same
+        # session instead of discarding an hour of work (11/20 jobs in run
+        # 45376162734 died exactly here: "driver exception: TimeoutExpired").
+        log("codex build timed out after 3600s (stuck/reconnect loop), treating as truncation")
     # Resume-continue loop (added 24 Nov 2026): pilot #2 (acct 1371) died with
     # "Incomplete response returned, reason: max_output_tokens" after 444k
     # tokens of planning and no composition.html. A truncated turn is
@@ -219,11 +226,14 @@ try:
                  "and the verify script per the brief. Keep code tight; do not start new helper tools. "
                  "Do NOT commit yet and do NOT submit — the driver renders entry.png and resumes you.")
         log(f"resume-continue attempt {_attempt + 1} session {_sid}")
-        with open(BUILD_LOG, "a") as lf:
-            r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO),
-                                "resume", _sid, _cont],
-                               cwd=REPO, env=dict(os.environ), stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
-        log(f"resume-continue exit {r.returncode}")
+        try:
+            with open(BUILD_LOG, "a") as lf:
+                r = subprocess.run([CODEX, "exec", "-p", PROFILE, "--approve-for-me", "--add-dir", str(BASE), "-C", str(REPO),
+                                    "resume", _sid, _cont],
+                                   cwd=REPO, env=dict(os.environ), stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT, timeout=3600)
+            log(f"resume-continue exit {r.returncode}")
+        except subprocess.TimeoutExpired:
+            log(f"resume-continue attempt {_attempt + 1} timed out after 3600s")
     if not (REPO / "composition.html").exists():
         fail("codex build produced no composition.html", tail=BUILD_LOG.read_text(errors="replace")[-800:])
     mark("build_done")
