@@ -14,7 +14,7 @@ on:
       max_parallel:
         description: "Max parallel build jobs"
         required: false
-        default: "60"
+        default: "20"
 
 jobs:
   prepare:
