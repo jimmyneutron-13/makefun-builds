@@ -13,8 +13,13 @@ This script:
   3. stages the build's Codex sessions into a temp CODEX_HOME
   4. runs kit bundle -> check -> submit -> API verify with the payload
      credentials (never printed), using the same flags as the VM finish
-     (split-finish.py) except --provider seek100 --model deepseek-v4.1-flash-free
-     (the actual runner build provider/model)
+     (split-finish.py). The bundle's --provider/--model come from the
+     workflow's `provider` dispatch input (env PROVIDER): seek100 ->
+     seek100/deepseek-v4.1-flash-free, xingchi -> xingchi/gpt-6.1-sol.
+     They MUST match the actual runner build: the kit's bundle refuses a
+     declared model that contradicts what the top-level Codex sessions
+     record (contradictedAgentFacts) — run #6 (45507032850, xingchi builds)
+     failed exactly here because this script hardcoded seek100.
   5. writes submitted-<N>.json to cwd (submission, claim, server_status) and
      exits 0 on success, 1 on failure. The workflow uploads the JSON as an
      artifact either way; the encrypted result artifact is still uploaded too,
@@ -63,6 +68,19 @@ try:
     pw = "".join((os.environ.get("BUNDLE_PASSPHRASE") or "").split())
     if not pw:
         finish(error="BUNDLE_PASSPHRASE missing")
+    # Bundle must declare the ACTUAL build provider/model. The kit's bundle
+    # refuses a declared model that contradicts what the top-level Codex
+    # sessions record (contradictedAgentFacts in cli/makefun.mjs): run #6
+    # (xingchi builds, sessions recorded gpt-6.1-sol) failed here because
+    # this script hardcoded seek100/deepseek-v4.1-flash-free. The workflow
+    # passes PROVIDER (its `provider` dispatch input) to this step.
+    PROVIDER = (os.environ.get("PROVIDER") or "seek100").strip().lower()
+    _pm = {"seek100": ("seek100", "deepseek-v4.1-flash-free"),
+           "xingchi": ("xingchi", "gpt-6.1-sol")}
+    if PROVIDER not in _pm:
+        finish(error=f"unknown PROVIDER {PROVIDER!r} (want seek100 or xingchi)")
+    BUNDLE_PROVIDER, BUNDLE_MODEL = _pm[PROVIDER]
+    log(f"bundle provider={BUNDLE_PROVIDER} model={BUNDLE_MODEL}")
     if not ENC.exists():
         finish(error="split-result enc missing (build step produced nothing)")
     work = BASE / "submit-work"
@@ -137,8 +155,8 @@ try:
              "--prompt-file", str(BASE / "brief.txt"),
              "--prompt-origin", "handed-off",
              "--prompt-via", "parent agent handoff",
-             "--harness", "codex", "--harness-version", "0.170.0", "--provider", "seek100",
-             "--model", "deepseek-v4.1-flash-free", "--effort", "default", "--mcp", "none",
+             "--harness", "codex", "--harness-version", "0.170.0", "--provider", BUNDLE_PROVIDER,
+             "--model", BUNDLE_MODEL, "--effort", "default", "--mcp", "none",
              "--parent-session", str(parent),
              "--muse-usage", str(usage_file),
              "--no-family",

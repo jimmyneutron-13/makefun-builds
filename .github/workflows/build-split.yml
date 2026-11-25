@@ -208,6 +208,8 @@ jobs:
           test -f split-result-${{ matrix.n }}.enc || echo "WARNING: no encrypted result produced"
 
       - name: Submit account ${{ matrix.n }} (direct, no VM)
+        env:
+          PROVIDER: ${{ inputs.provider }}
         run: |
           python3 split-submit-one.py ${{ matrix.n }}
 
