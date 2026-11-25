@@ -29,7 +29,8 @@ Usage: split-submit-one.py <N>
 Env: SPLIT_BASE (payload dir), BUNDLE_PASSPHRASE (to decrypt the result).
 Never prints secret values.
 """
-import gzip, json, os, pathlib, shutil, subprocess, sys, tarfile, time, urllib.request
+import gzip, json, os, pathlib, shutil, subprocess, sys, tarfile, time, urllib.request, uuid
+from datetime import datetime
 
 N = int(sys.argv[1])
 BASE = pathlib.Path(os.environ.get("SPLIT_BASE", f"/home/runner/work/_temp/split-acct-{N}")).resolve()
@@ -140,8 +141,58 @@ try:
     sys_prompt = BASE / "system-prompt-real.txt"
     if not sys_prompt.exists():
         finish(error="system-prompt-real.txt missing from payload")
+    # muse-usage rows for the bundle. The kit refuses --muse-usage when it
+    # holds no usage row (run #7 failed here for all 3 accounts: the
+    # payload's usage file was empty because the VM's file for this slug
+    # has no rows, and the runner build's usage only exists after the
+    # build). Generate the rows on the runner from the staged Codex
+    # sessions: each `token_usage_record` line becomes one row (agent_id =
+    # Codex session id, model = the actual build model), mirroring the VM
+    # lane's muse.db rows. Payload rows, if any (parent session), are kept
+    # first.
     usage_file = BASE / f"muse-usage-{SLUG}.jsonl"
-    usage_file.touch(exist_ok=True)
+    usage_rows = []
+    if usage_file.exists():
+        usage_rows = [ln.strip() for ln in usage_file.read_text(errors="replace").splitlines() if ln.strip()]
+    n_codex_rows = 0
+    for sf in sorted(codex_home.rglob("*.jsonl")):
+        sess_id = None
+        try:
+            lines = sf.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            try:
+                rec = json.loads(ln)
+            except Exception:
+                continue
+            pay = rec.get("payload") or {}
+            if not sess_id and isinstance(pay, dict):
+                sess_id = pay.get("session_id") or pay.get("id")
+            if rec.get("type") != "token_usage_record":
+                continue
+            u = (pay.get("usage") or {}) if isinstance(pay, dict) else {}
+            if "input_tokens" not in u or "output_tokens" not in u:
+                continue
+            ts = rec.get("timestamp") or ""
+            try:
+                created = int(datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp())
+            except Exception:
+                created = int(time.time())
+            row = {
+                "agent_id": sess_id or sf.stem,
+                "message_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"codex:{sess_id}:{rec.get('ordinal')}")),
+                "created_at": created,
+                "input_tokens": int(u["input_tokens"]),
+                "output_tokens": int(u["output_tokens"]),
+                "model": BUNDLE_MODEL,
+            }
+            usage_rows.append(json.dumps(row))
+            n_codex_rows += 1
+    usage_file.write_text("\n".join(usage_rows) + ("\n" if usage_rows else ""))
+    log(f"muse-usage rows: {len(usage_rows)} total ({n_codex_rows} from codex sessions, {len(usage_rows) - n_codex_rows} from payload)")
+    if not usage_rows:
+        finish(error="no usage rows: payload usage file empty and no token_usage_record in codex sessions")
     creds_file = BASE / "credentials.json"
     keypair_file = BASE / "keypair.json"
     for p in (creds_file, keypair_file):
