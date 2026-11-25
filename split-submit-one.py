@@ -208,6 +208,7 @@ try:
              "--prompt-via", "parent agent handoff",
              "--harness", "codex", "--harness-version", "0.170.0", "--provider", BUNDLE_PROVIDER,
              "--model", BUNDLE_MODEL, "--effort", "default", "--mcp", "none",
+             "--instructions", "none",
              "--parent-session", str(parent),
              "--muse-usage", str(usage_file),
              "--no-family",
