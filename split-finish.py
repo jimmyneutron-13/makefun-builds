@@ -15,7 +15,7 @@ Usage: split-finish.py <N> [<N> ...] [--slug news-image-20261121] [--dry-run]
 --dry-run stops before submit (and before ledger writes); a missing artifact
 is reported, not an error. Never prints secret values.
 """
-import argparse, json, os, pathlib, shutil, subprocess, sys, tarfile, time, zipfile
+import argparse, datetime, json, os, pathlib, shutil, subprocess, sys, tarfile, time, uuid, zipfile
 
 HOME = pathlib.Path.home()
 GH = HOME / "workspace" / "gh-builds"
@@ -201,11 +201,67 @@ def finish_one(n, slug, dry_run, artifact_zip=None):
         log(n, "DRY-RUN: would now bundle + check + submit")
         return result
 
+    # 3b. relocate the repo to the build session's recorded cwd: the bundle
+    # discovers the session by matching its cwd to the repo path, and the
+    # runner session's cwd is the payload layout
+    # (/home/runner/work/_temp/split-acct-<n>/repo), not this work dir —
+    # without this the bundle finds no session and fails (seen 26 Nov).
+    sess_cwd = None
+    for sf in sorted((codex_home / "sessions").rglob("*.jsonl")):
+        for ln in sf.read_text(errors="replace").splitlines():
+            try: d = json.loads(ln)
+            except Exception: continue
+            if d.get("type") == "session_meta":
+                sess_cwd = (d.get("payload") or {}).get("cwd")
+                break
+        if sess_cwd: break
+    if sess_cwd and pathlib.Path(sess_cwd) != repo:
+        dest = pathlib.Path(sess_cwd)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists(): shutil.rmtree(dest)
+        shutil.move(str(repo), str(dest))
+        repo = dest
+        log(n, f"repo relocated to session cwd {repo}")
+
     # 4. bundle transcripts (local only; CODEX_HOME points at staged sessions)
     kit = work / "kit" / f"{slug}-kit"
     bundle_out = work / f"transcripts-{slug}-acct{n}.tar.gz"
-    usage_file = HOME / ".makefun" / f"muse-usage-{slug}.jsonl"
-    usage_file.touch(exist_ok=True)
+    # usage rows: this kit refuses an empty --muse-usage file. Keep any rows
+    # the shared file already has and add one row per token_usage_record from
+    # the staged Codex sessions (same recipe as split-submit-one.py). Written
+    # to a per-account file so the shared VM usage file is never polluted.
+    usage_file = work / f"muse-usage-{slug}-acct{n}.jsonl"
+    rows = []
+    shared_usage = HOME / ".makefun" / f"muse-usage-{slug}.jsonl"
+    if shared_usage.exists():
+        rows += [ln for ln in shared_usage.read_text(errors="replace").splitlines() if ln.strip()]
+    seen = set(rows)
+    for sf in sorted((codex_home / "sessions").rglob("*.jsonl")):
+        sess_id = None
+        ordinal = 0
+        for ln in sf.read_text(errors="replace").splitlines():
+            try: d = json.loads(ln)
+            except Exception: continue
+            if d.get("type") == "session_meta":
+                sess_id = (d.get("payload") or {}).get("session_id") or sess_id
+            elif d.get("type") == "token_usage_record":
+                pl = d.get("payload") or {}
+                u = pl.get("usage") or pl.get("token_usage") or {}
+                ts = d.get("timestamp") or pl.get("timestamp") or ""
+                try: epoch = int(datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+                except Exception: epoch = 0
+                row = json.dumps({"agent_id": sess_id,
+                                  "message_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"codex:{sess_id}:{ordinal}")),
+                                  "created_at": epoch,
+                                  "input_tokens": u.get("input_tokens", 0),
+                                  "output_tokens": u.get("output_tokens", 0),
+                                  "model": "gpt-6.1-sol"})
+                if row not in seen: rows.append(row); seen.add(row)
+                ordinal += 1
+    usage_file.write_text("\n".join(rows) + ("\n" if rows else ""))
+    if not rows:
+        result["error"] = "no usage rows available (bundle would fail)"
+        log(n, result["error"]); return result
     r = run(["node", "cli/makefun.mjs", "bundle", "--repo", str(repo), "--out", str(bundle_out),
              "--system-prompt", str(MAKEFUN / "system-prompt-real.txt"),
              "--prompt-file", PROMPT_FILE if pathlib.Path(PROMPT_FILE).exists() else str(work / "brief.txt"),
