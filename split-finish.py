@@ -219,9 +219,9 @@ def finish_one(n, slug, dry_run, artifact_zip=None):
         dest = pathlib.Path(sess_cwd)
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists(): shutil.rmtree(dest)
-        shutil.move(str(repo), str(dest))
+        shutil.copytree(str(repo), str(dest))  # copy, not move: a re-run needs work/repo intact
         repo = dest
-        log(n, f"repo relocated to session cwd {repo}")
+        log(n, f"repo copied to session cwd {repo}")
 
     # 4. bundle transcripts (local only; CODEX_HOME points at staged sessions)
     kit = work / "kit" / f"{slug}-kit"
@@ -262,6 +262,14 @@ def finish_one(n, slug, dry_run, artifact_zip=None):
     if not rows:
         result["error"] = "no usage rows available (bundle would fail)"
         log(n, result["error"]); return result
+    # the build ran on the runner with NO instruction files; bundle from a
+    # clean HOME so the kit's machine-wide instruction-file search does not
+    # trip over this VM's own AGENTS.md/CLAUDE.md (it refuses --instructions
+    # none while it finds files on the machine). Mirrors the verified manual
+    # finish of acct 1666 (HOME=<empty> + --instructions none -> healthy
+    # bundle, server accepted).
+    clean_home = work / "home"
+    clean_home.mkdir(parents=True, exist_ok=True)
     r = run(["node", "cli/makefun.mjs", "bundle", "--repo", str(repo), "--out", str(bundle_out),
              "--system-prompt", str(MAKEFUN / "system-prompt-real.txt"),
              "--prompt-file", PROMPT_FILE if pathlib.Path(PROMPT_FILE).exists() else str(work / "brief.txt"),
@@ -269,11 +277,12 @@ def finish_one(n, slug, dry_run, artifact_zip=None):
              "--prompt-via", "parent agent handoff",
              "--harness", "codex", "--harness-version", "0.170.0", "--provider", "xingchi",
              "--model", "gpt-6.1-sol", "--effort", "default", "--mcp", "none",
+             "--instructions", "none",
              "--parent-session", PARENT_SESSIONS[0],
              "--parent-session", PARENT_SESSIONS[1],
              "--muse-usage", str(usage_file),
              "--no-family",
-             "--json"], cwd=kit, env_extra={"CODEX_HOME": str(codex_home)}, timeout=900)
+             "--json"], cwd=kit, env_extra={"CODEX_HOME": str(codex_home), "HOME": str(clean_home)}, timeout=900)
     log(n, f"bundle exit {r.returncode}")
     if r.returncode != 0 or not bundle_out.exists():
         result["error"] = "bundle failed"; result["bundle_tail"] = (r.stdout + r.stderr)[-1200:]
