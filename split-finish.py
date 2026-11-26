@@ -24,7 +24,16 @@ MAKEFUN = HOME / "workspace" / "makefun"
 # refuses subdirectories of an existing repository).
 SPLIT_WORK = MAKEFUN / "split-work"
 REPO_SLUG = "rasjdahw/makefun-builds"
-PARENT_SESSION = "/home/hatch/agents/agent-3ec4af1d-5ebf-4d29-a262-b348c9e24464/sessions/3ec4af1d-5ebf-4d29-a262-b348c9e24464.jsonl"
+# Parent chain mirrors finalize-zeroentry.py (chain fix 24 Nov ~13:05 WIB):
+# the old single parent 3ec4af1d is post-compaction (no verbatim prompt), so
+# the server records 0 sessions / provenance "none" and cancels. Valid chain:
+# coordinator 9054334f -> main agent b0074dc6, whose session holds the user's
+# order verbatim (= PROMPT_FILE content, verified 26 Nov).
+PARENT_SESSIONS = [
+    "/home/hatch/agents/agent-9054334f-b912-4cb2-8d7d-3c0fd16a9d64/sessions/9054334f-b912-4cb2-8d7d-3c0fd16a9d64.jsonl",
+    "/home/hatch/agents/agent-b0074dc6-6068-4379-b297-71e10e7fc08c/sessions/b0074dc6-6068-4379-b297-71e10e7fc08c.jsonl",
+]
+PROMPT_FILE = str(MAKEFUN / "prompt-person-news-image-20261123.txt")
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 def log(n, msg):
@@ -199,12 +208,13 @@ def finish_one(n, slug, dry_run, artifact_zip=None):
     usage_file.touch(exist_ok=True)
     r = run(["node", "cli/makefun.mjs", "bundle", "--repo", str(repo), "--out", str(bundle_out),
              "--system-prompt", str(MAKEFUN / "system-prompt-real.txt"),
-             "--prompt-file", str(work / "brief.txt"),
+             "--prompt-file", PROMPT_FILE if pathlib.Path(PROMPT_FILE).exists() else str(work / "brief.txt"),
              "--prompt-origin", "handed-off",
              "--prompt-via", "parent agent handoff",
              "--harness", "codex", "--harness-version", "0.170.0", "--provider", "xingchi",
              "--model", "gpt-6.1-sol", "--effort", "default", "--mcp", "none",
-             "--parent-session", PARENT_SESSION,
+             "--parent-session", PARENT_SESSIONS[0],
+             "--parent-session", PARENT_SESSIONS[1],
              "--muse-usage", str(usage_file),
              "--no-family",
              "--json"], cwd=kit, env_extra={"CODEX_HOME": str(codex_home)}, timeout=900)
