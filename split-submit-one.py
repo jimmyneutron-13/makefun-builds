@@ -131,13 +131,25 @@ try:
     if n_sess == 0:
         finish(error="no codex session files in result (bundle would fail)")
 
-    # parent session snapshot (gzipped in payload) + system prompt + usage
-    parent = BASE / "parent-session.jsonl"
-    if not parent.exists() and (BASE / "parent-session.jsonl.gz").exists():
-        with gzip.open(BASE / "parent-session.jsonl.gz", "rb") as f_in, open(parent, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
-    if not parent.exists():
+    # parent session snapshots (gzipped in payload) + system prompt + usage.
+    # The valid chain is TWO sessions (coordinator -> main agent, whose session
+    # holds the user's verbatim prompt); a single post-compaction parent makes
+    # the server record 0 sessions and cancel the submission (runs #7-#9).
+    # Old payloads carry only the first file -> fall back to one parent.
+    parent_args = []
+    for gz_name, out_name in (("parent-session.jsonl.gz", "parent-session.jsonl"),
+                              ("parent-session-2.jsonl.gz", "parent-session-2.jsonl")):
+        p = BASE / out_name
+        if not p.exists() and (BASE / gz_name).exists():
+            with gzip.open(BASE / gz_name, "rb") as f_in, open(p, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        if p.exists():
+            parent_args += ["--parent-session", str(p)]
+    if not parent_args:
         finish(error="parent-session snapshot missing from payload")
+    prompt_file = BASE / "prompt-person.txt"
+    if not prompt_file.exists():
+        prompt_file = BASE / "brief.txt"  # old payloads: handed-off brief
     sys_prompt = BASE / "system-prompt-real.txt"
     if not sys_prompt.exists():
         finish(error="system-prompt-real.txt missing from payload")
@@ -203,13 +215,13 @@ try:
     # bundle (same flags as VM split-finish.py, provider/model = actual runner build)
     r = run(["node", "cli/makefun.mjs", "bundle", "--repo", str(REPO), "--out", str(bundle_out),
              "--system-prompt", str(sys_prompt),
-             "--prompt-file", str(BASE / "brief.txt"),
+             "--prompt-file", str(prompt_file),
              "--prompt-origin", "handed-off",
              "--prompt-via", "parent agent handoff",
              "--harness", "codex", "--harness-version", "0.170.0", "--provider", BUNDLE_PROVIDER,
              "--model", BUNDLE_MODEL, "--effort", "default", "--mcp", "none",
              "--instructions", "none",
-             "--parent-session", str(parent),
+             *parent_args,
              "--muse-usage", str(usage_file),
              "--no-family",
              "--json"], cwd=KIT, env_extra={"CODEX_HOME": str(codex_home)}, timeout=900)

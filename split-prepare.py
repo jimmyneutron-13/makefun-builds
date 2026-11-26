@@ -41,7 +41,18 @@ TITLES = {"news-image-20261121": "The Atlas Daily — Saturday 21 November 2026"
           "news-image-20261122": "The Atlas Daily — Sunday 22 November 2026",
           "news-image-20261123": "The Atlas Daily — Monday 23 November 2026",
           "news-image-20261120": "The Atlas Daily — Friday 20 November 2026"}
-PARENT_SESSION = HOME / "agents" / "agent-3ec4af1d-5ebf-4d29-a262-b348c9e24464" / "sessions" / "3ec4af1d-5ebf-4d29-a262-b348c9e24464.jsonl"
+# Parent chain (mirrors the VM lane's proven finalize-zeroentry.py, chain fix
+# 24 Nov ~13:05 WIB): the old single parent 3ec4af1d is post-compaction and no
+# longer contains the user's verbatim prompt, so the bundle's run-record
+# parent-chain check fails and the server records 0 sessions / provenance
+# "none" and cancels the submission (GitHub runs #7-#9). The valid chain is
+# coordinator 9054334f -> main agent b0074dc6, whose session holds the user's
+# order verbatim (also the content of PROMPT_PERSON below).
+PARENT_SESSIONS = [
+    HOME / "agents" / "agent-9054334f-b912-4cb2-8d7d-3c0fd16a9d64" / "sessions" / "9054334f-b912-4cb2-8d7d-3c0fd16a9d64.jsonl",
+    HOME / "agents" / "agent-b0074dc6-6068-4379-b297-71e10e7fc08c" / "sessions" / "b0074dc6-6068-4379-b297-71e10e7fc08c.jsonl",
+]
+PROMPT_PERSON = MAKEFUN / "prompt-person-news-image-20261123.txt"
 SYSTEM_PROMPT = MAKEFUN / "system-prompt-real.txt"
 # Fixed runner layout (GitHub-hosted ubuntu: RUNNER_TEMP=/home/runner/work/_temp;
 # the workflow symlinks this path if RUNNER_TEMP differs).
@@ -260,13 +271,16 @@ def main():
     shutil.copy2(creds, creds_copy)
     shutil.copy2(keypair, keypair_copy)
     os.chmod(creds_copy, 0o600); os.chmod(keypair_copy, 0o600)
-    parent_gz = work / "parent-session.jsonl.gz"
-    if PARENT_SESSION.exists():
-        with open(PARENT_SESSION, "rb") as f_in, gzip.open(parent_gz, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
-        log(f"parent session snapshot gzipped: {parent_gz.stat().st_size} bytes")
-    else:
-        log("WARNING: parent session file missing, payload will lack it")
+    parent_gzs = []
+    for i, ps in enumerate(PARENT_SESSIONS):
+        pgz = work / ("parent-session.jsonl.gz" if i == 0 else f"parent-session-{i + 1}.jsonl.gz")
+        if ps.exists():
+            with open(ps, "rb") as f_in, gzip.open(pgz, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            parent_gzs.append(pgz)
+            log(f"parent session {i + 1} snapshot gzipped: {pgz.stat().st_size} bytes")
+        else:
+            log(f"WARNING: parent session {i + 1} file missing, payload will lack it")
     usage_src = HOME / ".makefun" / f"muse-usage-{SLUG}.jsonl"
     with tarfile.open(tar_path, "w") as tf:
         tf.add(repo, arcname="repo")
@@ -284,7 +298,8 @@ def main():
         tf.add(creds_copy, arcname="credentials.json")
         tf.add(keypair_copy, arcname="keypair.json")
         if SYSTEM_PROMPT.exists(): tf.add(SYSTEM_PROMPT, arcname="system-prompt-real.txt")
-        if parent_gz.exists(): tf.add(parent_gz, arcname="parent-session.jsonl.gz")
+        for pgz in parent_gzs: tf.add(pgz, arcname=pgz.name)
+        if PROMPT_PERSON.exists(): tf.add(PROMPT_PERSON, arcname="prompt-person.txt")
         if usage_src.exists(): tf.add(usage_src, arcname=f"muse-usage-{SLUG}.jsonl")
     encrypt(tar_path, enc_path, passphrase())
     tar_path.unlink(missing_ok=True)
