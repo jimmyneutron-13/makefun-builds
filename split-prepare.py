@@ -126,6 +126,8 @@ def main():
     ap.add_argument("--title", default=None)
     ap.add_argument("--force", action="store_true", help="redo init/payload even if present")
     ap.add_argument("--no-push", action="store_true", help="build payload but do not commit/push")
+    ap.add_argument("--expect", default="", help="generic driver: comma list of repo-relative deliverable paths that must exist after the build")
+    ap.add_argument("--shoot", default="", help="generic driver: screenshot mode ('app' = serve app/ into screenshots/)")
     args = ap.parse_args()
     N, SLUG = args.n, args.slug
     TITLE = args.title or TITLES.get(SLUG, SLUG)
@@ -251,7 +253,9 @@ def main():
     # 4. meta + payload tar
     meta = {"n": N, "handle": HANDLE, "wallet": WALLET, "slug": SLUG, "title": TITLE,
             "anchor": ANCHOR, "round": ROUND, "ledger": ledger.name,
-            "runner_base": runner_base}
+            "runner_base": runner_base,
+            "expect": [p.strip() for p in args.expect.split(",") if p.strip()],
+            "shoot": args.shoot}
     meta_path.write_text(json.dumps(meta, indent=1))
     (work / "anchor.txt").write_text(ANCHOR + "\n")
 
@@ -294,6 +298,8 @@ def main():
         # kit/<slug>-kit/cli/makefun.mjs already exists.
         if kit.exists(): tf.add(kit, arcname=f"kit/{SLUG}-kit")
         if shoot_src.exists(): tf.add(shoot_src, arcname="shoot-news105.mjs")
+        shoot_site_src = MAKEFUN / "shoot-tools" / "shoot-site.mjs"
+        if shoot_site_src.exists(): tf.add(shoot_site_src, arcname="shoot-site.mjs")
         if toml_src.exists(): tf.add(toml_src, arcname="xingchi.config.toml")
         tf.add(creds_copy, arcname="credentials.json")
         tf.add(keypair_copy, arcname="keypair.json")

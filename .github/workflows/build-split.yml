@@ -31,6 +31,14 @@ on:
         options:
           - seek100
           - xingchi
+      driver:
+        description: "Build driver (split = news-image driver, generic = non-news bounties)"
+        required: false
+        default: "split"
+        type: choice
+        options:
+          - split
+          - generic
 
 jobs:
   prepare:
@@ -204,7 +212,11 @@ jobs:
           PROVIDER: ${{ inputs.provider }}
         run: |
           export XINGCHI_API_KEY="$(printf %s "$XINGCHI_API_KEY" | tr -d '[:space:]')"
-          python3 split-build-one.py ${{ matrix.n }} || true
+          if [ "${{ inputs.driver }}" = "generic" ]; then
+            python3 split-build-generic.py ${{ matrix.n }} || true
+          else
+            python3 split-build-one.py ${{ matrix.n }} || true
+          fi
           test -f split-result-${{ matrix.n }}.enc || echo "WARNING: no encrypted result produced"
 
       # DISABLED 26 Nov 2026: the make.fun server cancels submissions sent
